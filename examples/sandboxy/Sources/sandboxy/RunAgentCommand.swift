@@ -137,8 +137,8 @@ struct AgentOptions: ParsableArguments {
     }
 
     @Option(
-        name: .long, parsing: .upToNextOption,
-        help: "Hostnames to allow through the HTTP proxy")
+        name: .long, parsing: .singleValue,
+        help: "Hostnames to allow through the HTTP proxy (repeatable)")
     var allowHosts: [String] = []
 
     @Flag(name: .long, help: "Disable network filtering (allow unrestricted network access)")
