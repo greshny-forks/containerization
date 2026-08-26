@@ -193,21 +193,23 @@ extension AgentDefinition {
 
     static let antigravity = AgentDefinition(
         displayName: "Antigravity CLI",
-        baseImage: "docker.io/library/python:3.12-slim",
+        baseImage: "docker.io/library/node:22-slim",
         installCommands: [
-            "apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends curl git ca-certificates nodejs npm procps && apt-get clean && rm -rf /var/lib/apt/lists/*",
-            "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+            "sed -i 's|deb.debian.org/debian|mirrors.kernel.org/debian|g' /etc/apt/sources.list.d/debian.sources && sed -i 's|mirrors.kernel.org/debian-security|security.debian.org/debian-security|g' /etc/apt/sources.list.d/debian.sources && apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends curl git ca-certificates procps && apt-get clean && rm -rf /var/lib/apt/lists/*",
+            "curl -fsSL https://antigravity.google/cli/install.sh | bash"
         ],
-        launchCommand: ["agy"],
+        launchCommand: [
+            "agy"
+        ],
         environmentVariables: [
             "GEMINI_API_KEY",
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "NODE_OPTIONS=--max-old-space-size=4096",
-            "IS_SANDBOX=1",
+            "IS_SANDBOX=1"
         ],
         mounts: [
-            AgentMount(hostPath: "~/.gemini", containerPath: "/root/.gemini")
+            AgentMount(hostPath: "~/.gemini", containerPath: "/root/.gemini", readOnly: false)
         ],
         allowedHosts: [
             "antigravity.google",
@@ -217,17 +219,15 @@ extension AgentDefinition {
             "generativelanguage.googleapis.com",
             "*.anthropic.com",
             "api.openai.com",
-            "deb.debian.org",
-            "*.debian.org",
-            "*.fastlydns.net",
-            "debian.map.fastlydns.net",
+            "mirrors.kernel.org",
+            "mirrors.edge.kernel.org",
             "security.debian.org",
             "npm.org",
             "*.npmjs.org",
             "*.github.com",
             "*.githubusercontent.com",
             "*.pypi.org",
-            "*.pythonhosted.org",
+            "*.pythonhosted.org"
         ]
     )
 }
