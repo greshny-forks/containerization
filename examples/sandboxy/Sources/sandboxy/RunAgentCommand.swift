@@ -663,6 +663,9 @@ private func runContainerSession(
     var envVarsBuilder = [
         "PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "TERM=xterm-256color",
+        "COLORTERM=truecolor",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
         "HOME=/root",
     ]
     for envVar in definition.environmentVariables {
