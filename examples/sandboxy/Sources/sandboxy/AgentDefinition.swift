@@ -208,9 +208,7 @@ extension AgentDefinition {
             "NODE_OPTIONS=--max-old-space-size=4096",
             "IS_SANDBOX=1"
         ],
-        mounts: [
-            AgentMount(hostPath: "~/.gemini", containerPath: "/root/.gemini", readOnly: true)
-        ],
+        mounts: [],
         allowedHosts: [
             "antigravity.google",
             "*.antigravity.google",
