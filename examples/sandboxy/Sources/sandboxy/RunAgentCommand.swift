@@ -661,7 +661,7 @@ private func runContainerSession(
 
     // Build environment for the agent process.
     var envVarsBuilder = [
-        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         "TERM=xterm-256color",
         "HOME=/root",
     ]

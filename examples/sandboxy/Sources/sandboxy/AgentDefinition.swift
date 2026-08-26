@@ -196,7 +196,7 @@ extension AgentDefinition {
         baseImage: "docker.io/library/node:22-slim",
         installCommands: [
             "sed -i 's|deb.debian.org/debian|mirrors.kernel.org/debian|g' /etc/apt/sources.list.d/debian.sources && sed -i 's|mirrors.kernel.org/debian-security|security.debian.org/debian-security|g' /etc/apt/sources.list.d/debian.sources && apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends curl git ca-certificates procps && apt-get clean && rm -rf /var/lib/apt/lists/*",
-            "curl -fsSL https://antigravity.google/cli/install.sh | bash"
+            "curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- -d /usr/local/bin"
         ],
         launchCommand: [
             "agy"
