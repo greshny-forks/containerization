@@ -196,10 +196,33 @@ extension AgentDefinition {
         baseImage: "docker.io/library/node:22-slim",
         installCommands: [
             "sed -i 's|deb.debian.org/debian|mirrors.kernel.org/debian|g' /etc/apt/sources.list.d/debian.sources && sed -i 's|mirrors.kernel.org/debian-security|security.debian.org/debian-security|g' /etc/apt/sources.list.d/debian.sources && apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends curl git ca-certificates procps && apt-get clean && rm -rf /var/lib/apt/lists/*",
-            "curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- -d /usr/local/bin"
+            "curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- -d /usr/local/bin",
+            "mkdir -p /root/.gemini/antigravity-cli && echo '{\"modelProvider\": \"gemini\"}' > /root/.gemini/antigravity-cli/settings.json"
         ],
         launchCommand: [
-            "agy"
+            "bash",
+            "-c",
+            """
+            mkdir -p /root/.gemini/antigravity-cli
+            SETTINGS_FILE="/root/.gemini/antigravity-cli/settings.json"
+            if [ ! -f "$SETTINGS_FILE" ]; then
+                echo '{"modelProvider": "gemini"}' > "$SETTINGS_FILE"
+            elif ! grep -q '"modelProvider"' "$SETTINGS_FILE" 2>/dev/null; then
+                node -e '
+                    const fs = require("fs");
+                    const f = process.argv[1];
+                    try {
+                        let s = JSON.parse(fs.readFileSync(f, "utf8"));
+                        if (!s.modelProvider) {
+                            s.modelProvider = process.env.ANTHROPIC_API_KEY ? "anthropic" : (process.env.OPENAI_API_KEY ? "openai" : "gemini");
+                            fs.writeFileSync(f, JSON.stringify(s, null, 2));
+                        }
+                    } catch {}
+                ' "$SETTINGS_FILE"
+            fi
+            exec agy "$@"
+            """,
+            "--"
         ],
         environmentVariables: [
             "GEMINI_API_KEY",
