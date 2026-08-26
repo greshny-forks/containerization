@@ -96,7 +96,8 @@ struct AgentMount: Codable, Sendable {
     var resolvedHostPath: String {
         if hostPath.hasPrefix("~/") {
             let home = FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
-            return home + String(hostPath.dropFirst(1))
+            let relative = String(hostPath.dropFirst(2))
+            return (home as NSString).appendingPathComponent(relative)
         }
         if hostPath == "~" {
             return FileManager.default.homeDirectoryForCurrentUser.path(percentEncoded: false)
@@ -108,7 +109,10 @@ struct AgentMount: Codable, Sendable {
 extension AgentDefinition {
     /// Built-in agent definitions, keyed by their CLI name.
     static let builtIn: [String: AgentDefinition] = [
-        "claude": .claude
+        "claude": .claude,
+        "agy": .antigravity,
+        "antigravity": .antigravity,
+        "antigravity-cli": .antigravity,
     ]
 
     /// Returns all available agents: built-in definitions merged with any
@@ -178,6 +182,46 @@ extension AgentDefinition {
         allowedHosts: [
             "*.anthropic.com",
             "*.claude.com",
+            "npm.org",
+            "*.npmjs.org",
+            "*.github.com",
+            "*.githubusercontent.com",
+            "*.pypi.org",
+            "*.pythonhosted.org",
+        ]
+    )
+
+    static let antigravity = AgentDefinition(
+        displayName: "Antigravity CLI",
+        baseImage: "docker.io/library/python:3.12-slim",
+        installCommands: [
+            "apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends curl git ca-certificates nodejs npm procps && apt-get clean && rm -rf /var/lib/apt/lists/*",
+            "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        ],
+        launchCommand: ["agy"],
+        environmentVariables: [
+            "GEMINI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "NODE_OPTIONS=--max-old-space-size=4096",
+            "IS_SANDBOX=1",
+        ],
+        mounts: [
+            AgentMount(hostPath: "~/.gemini", containerPath: "/root/.gemini")
+        ],
+        allowedHosts: [
+            "antigravity.google",
+            "*.antigravity.google",
+            "*.googleapis.com",
+            "*.google.com",
+            "generativelanguage.googleapis.com",
+            "*.anthropic.com",
+            "api.openai.com",
+            "deb.debian.org",
+            "*.debian.org",
+            "*.fastlydns.net",
+            "debian.map.fastlydns.net",
+            "security.debian.org",
             "npm.org",
             "*.npmjs.org",
             "*.github.com",

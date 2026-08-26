@@ -100,6 +100,7 @@ On first run, `sandboxy` downloads a kernel, pulls a base image, and installs th
 ## Supported Agents
 
 - **Claude Code** - built-in
+- **Antigravity CLI** - built-in (`agy`, `antigravity`, `antigravity-cli`)
 
 Additional agents can be added via JSON config files. See [Adding a New Agent](#adding-a-new-agent).
 
@@ -112,6 +113,9 @@ Run an agent in a sandboxed container.
 ```bash
 # Run on the current directory
 sandboxy run claude
+
+# Run Antigravity CLI
+sandboxy run agy
 
 # Specify a workspace
 sandboxy run --workspace ~/projects/myapp claude
@@ -148,6 +152,9 @@ sandboxy run --rm claude
 
 # Pass flags through to the agent
 sandboxy run claude -- --model foobar
+
+# Pass flags through to agy
+sandboxy run agy -- --help
 ```
 
 **Options:**
