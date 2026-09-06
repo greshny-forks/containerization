@@ -261,15 +261,6 @@ func runAgent(
 ) async throws {
     try validateInstanceOptions(options)
 
-    signal(SIGINT) { _ in
-        var termios = termios()
-        tcgetattr(STDIN_FILENO, &termios)
-        termios.c_lflag |= UInt(ECHO | ICANON)
-        tcsetattr(STDIN_FILENO, TCSANOW, &termios)
-        write(STDERR_FILENO, "\u{001B}[?25h", 6)
-        _exit(130)
-    }
-
     let hostWorkspacePath = options.workspace ?? FileManager.default.currentDirectoryPath
     let guestWorkspacePath = hostWorkspacePath
     let extraMounts = try options.mount.map { try MountSpec.parse($0) }
@@ -715,13 +706,7 @@ private func runContainerSession(
     )
     try instanceState.save(appRoot: Sandboxy.appRoot)
 
-    let sigwinchStream = AsyncSignalHandler.create(notify: [SIGWINCH])
     let current = try Terminal.current
-    try current.setraw()
-    defer {
-        sigwinchStream.cancel()
-        current.tryReset()
-    }
 
     // Build environment for the agent process.
     var envVarsBuilder = [
@@ -785,70 +770,94 @@ private func runContainerSession(
         config.stdout = current
     }
 
-    try await agentProcess.start()
-    try? await agentProcess.resize(to: try current.size)
+    let signalHandler = AsyncSignalHandler.create(notify: [SIGWINCH, SIGINT, SIGTERM])
+    defer { signalHandler.cancel() }
+    let terminalSession = InteractiveTerminalSession(
+        terminal: current,
+        useAlternateScreen: definition.useAlternateScreen
+    )
+    let status = try await withTerminalSession(terminalSession) {
+        try await agentProcess.start()
+        try? await agentProcess.resize(to: try current.size)
 
-    try await withThrowingTaskGroup(of: Void.self) { group in
-        group.addTask {
-            for await _ in sigwinchStream.signals {
-                try await agentProcess.resize(to: try current.size)
+        let signalTask = Task {
+            for await signal in signalHandler.signals {
+                switch signal {
+                case SIGWINCH:
+                    try? await agentProcess.resize(to: try current.size)
+                case SIGINT, SIGTERM:
+                    try? await agentProcess.kill(signal)
+                default:
+                    break
+                }
             }
         }
+        defer {
+            signalTask.cancel()
+        }
 
-        let status = try await agentProcess.wait()
-        group.cancelAll()
-        sigwinchStream.cancel()
+        return try await agentProcess.wait()
+    }
 
-        try await agentProcess.delete()
+    try await agentProcess.delete()
 
-        // Stop container so rootfs is cleanly unmounted before caching.
-        try await container.stop()
+    // Stop container so rootfs is cleanly unmounted before caching.
+    try await container.stop()
 
-        if options.removeAfterRun {
-            ProgressUI.printStatus("Instance \u{1b}[1m\(instanceName)\u{1b}[0m removed (--rm).")
-        } else {
-            // Preserve the rootfs for all instances.
-            let namedDir = InstanceState.namedRootfsDir(appRoot: Sandboxy.appRoot)
-            try FileManager.default.createDirectory(at: namedDir, withIntermediateDirectories: true)
-            let namedPath = InstanceState.namedRootfsPath(appRoot: Sandboxy.appRoot, name: instanceName)
-            removeIfExists(at: namedPath)
-            try FileManager.default.copyItem(at: containerRootfsPath, to: namedPath)
+    if options.removeAfterRun {
+        ProgressUI.printStatus("Instance \u{1b}[1m\(instanceName)\u{1b}[0m removed (--rm).")
+    } else {
+        // Preserve the rootfs for all instances.
+        let namedDir = InstanceState.namedRootfsDir(appRoot: Sandboxy.appRoot)
+        try FileManager.default.createDirectory(at: namedDir, withIntermediateDirectories: true)
+        let namedPath = InstanceState.namedRootfsPath(appRoot: Sandboxy.appRoot, name: instanceName)
+        removeIfExists(at: namedPath)
+        try FileManager.default.copyItem(at: containerRootfsPath, to: namedPath)
 
-            let stopped = InstanceState(
-                id: instanceState.id,
-                name: instanceState.name,
-                agent: instanceState.agent,
-                workspace: instanceState.workspace,
-                status: .stopped,
-                createdAt: instanceState.createdAt,
-                stoppedAt: Date(),
-                cpus: instanceState.cpus,
-                memoryMB: instanceState.memoryMB
-            )
-            try stopped.save(appRoot: Sandboxy.appRoot)
+        let stopped = InstanceState(
+            id: instanceState.id,
+            name: instanceState.name,
+            agent: instanceState.agent,
+            workspace: instanceState.workspace,
+            status: .stopped,
+            createdAt: instanceState.createdAt,
+            stoppedAt: Date(),
+            cpus: instanceState.cpus,
+            memoryMB: instanceState.memoryMB
+        )
+        try stopped.save(appRoot: Sandboxy.appRoot)
 
-            if options.setDefault {
-                var defaults = try DefaultInstanceStore.load(appRoot: Sandboxy.appRoot)
-                defaults.set(instanceName: instanceName, for: agentName)
-                try defaults.save(appRoot: Sandboxy.appRoot)
-                ProgressUI.printStatus(
-                    "Instance \u{1b}[1m\(instanceName)\u{1b}[0m is now the default for \(agentName)."
-                )
-            }
-
+        if options.setDefault {
+            var defaults = try DefaultInstanceStore.load(appRoot: Sandboxy.appRoot)
+            defaults.set(instanceName: instanceName, for: agentName)
+            try defaults.save(appRoot: Sandboxy.appRoot)
             ProgressUI.printStatus(
-                "Instance \u{1b}[1m\(instanceName)\u{1b}[0m saved. Resume with: sandboxy run --name \(instanceName) \(agentName)"
+                "Instance \u{1b}[1m\(instanceName)\u{1b}[0m is now the default for \(agentName)."
             )
         }
 
-        if status.exitCode != 0 {
-            throw ExitCode(status.exitCode)
-        }
+        ProgressUI.printStatus(
+            "Instance \u{1b}[1m\(instanceName)\u{1b}[0m saved. Resume with: sandboxy run --name \(instanceName) \(agentName)"
+        )
+    }
+
+    if status.exitCode != 0 {
+        throw ExitCode(status.exitCode)
     }
 
     if let proxy = hostProxy {
         try await proxy.stop()
     }
+}
+
+private func withTerminalSession<T>(
+    _ terminalSession: InteractiveTerminalSession,
+    operation: () async throws -> T
+) async throws -> T {
+    var session = terminalSession
+    try session.start()
+    defer { session.restore() }
+    return try await operation()
 }
 
 private func configureContainer(

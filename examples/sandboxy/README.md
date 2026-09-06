@@ -366,11 +366,14 @@ Example (`foo.json`):
     "launchCommand": ["foo"],
     "environmentVariables": [],
     "mounts": [],
-    "allowedHosts": ["api.example.com", "*.cdn.example.com"]
+    "allowedHosts": ["api.example.com", "*.cdn.example.com"],
+    "useAlternateScreen": false
 }
 ```
 
 Then run it with `sandboxy run foo`.
+
+Set `useAlternateScreen` to `true` for a fullscreen agent that does not manage its own alternate screen. Codex manages its own fullscreen terminal. The built-in Agy definition also leaves this disabled and sets Agy's own `altScreenMode` preference to `always`, because Agy must select its fullscreen renderer itself for overlays such as slash-command completion.
 
 To override a built-in agent, create a file with the same name (e.g., `claude.json`). Only the fields you include are overridden. Omitted fields keep their defaults. Use `sandboxy config list --agent claude` to see the full default definition.
 

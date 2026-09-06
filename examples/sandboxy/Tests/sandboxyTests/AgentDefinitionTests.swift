@@ -14,6 +14,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+import Foundation
 import Testing
 
 @testable import sandboxy
@@ -28,6 +29,7 @@ struct AgentDefinitionTests {
         #expect(definition.baseImage == "docker.io/library/node:22-slim")
         #expect(definition.launchCommand == ["codex"])
         #expect(definition.mounts.isEmpty)
+        #expect(!definition.useAlternateScreen)
         #expect(
             Set(definition.environmentVariables)
                 == ["CODEX_HOME=/root/.codex", "OPENAI_API_KEY", "IS_SANDBOX=1"]
@@ -42,6 +44,43 @@ struct AgentDefinitionTests {
                     && $0.contains("CODEX_NON_INTERACTIVE=1")
             }
         )
+    }
+
+    @Test("Agy configures and owns its alternate screen")
+    func agyOwnsAlternateScreen() throws {
+        let definition = AgentDefinition.antigravity
+
+        #expect(!definition.useAlternateScreen)
+        #expect(definition.launchCommand.contains { $0.contains("altScreenMode=\"always\"") })
+        #expect(definition.launchCommand.contains { $0.contains("exec agy \"$@\"") })
+    }
+
+    @Test("Legacy agent definitions default to the standard terminal")
+    func legacyDefinitionDefaultsToStandardTerminal() throws {
+        let data = Data(
+            """
+            {
+              "displayName": "Example",
+              "baseImage": "example:latest",
+              "installCommands": [],
+              "launchCommand": ["example"],
+              "environmentVariables": [],
+              "mounts": [],
+              "allowedHosts": []
+            }
+            """.utf8
+        )
+
+        let definition = try JSONDecoder().decode(AgentDefinition.self, from: data)
+        #expect(!definition.useAlternateScreen)
+    }
+
+    @Test("An override can enable Sandboxy's alternate screen")
+    func overrideEnablesAlternateScreen() throws {
+        let data = Data(#"{"useAlternateScreen":true}"#.utf8)
+        let override = try JSONDecoder().decode(AgentOverride.self, from: data)
+
+        #expect(override.merged(onto: .antigravity).useAlternateScreen)
     }
 
     @Test("Codex runtime allowlist only includes OpenAI-owned hosts")

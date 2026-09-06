@@ -36,7 +36,8 @@ import Foundation
 ///     "mounts": [
 ///         {"hostPath": "~/.foo", "containerPath": "/root/.foo", "readOnly": true}
 ///     ],
-///     "allowedHosts": ["api.example.com", "*.cdn.example.com"]
+///     "allowedHosts": ["api.example.com", "*.cdn.example.com"],
+///     "useAlternateScreen": false
 /// }
 /// ```
 struct AgentDefinition: Codable, Sendable {
@@ -66,6 +67,42 @@ struct AgentDefinition: Codable, Sendable {
     /// Merged with CLI `--allow-hosts` values.
     /// An empty list means all traffic is denied. Use `--no-network-filter` to disable filtering.
     let allowedHosts: [String]
+
+    /// Whether Sandboxy should provide an alternate screen for the interactive session.
+    /// Defaults to false because many agents manage their own fullscreen terminal UI.
+    let useAlternateScreen: Bool
+
+    init(
+        displayName: String,
+        baseImage: String,
+        installCommands: [String],
+        launchCommand: [String],
+        environmentVariables: [String],
+        mounts: [AgentMount],
+        allowedHosts: [String],
+        useAlternateScreen: Bool = false
+    ) {
+        self.displayName = displayName
+        self.baseImage = baseImage
+        self.installCommands = installCommands
+        self.launchCommand = launchCommand
+        self.environmentVariables = environmentVariables
+        self.mounts = mounts
+        self.allowedHosts = allowedHosts
+        self.useAlternateScreen = useAlternateScreen
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        baseImage = try container.decode(String.self, forKey: .baseImage)
+        installCommands = try container.decode([String].self, forKey: .installCommands)
+        launchCommand = try container.decode([String].self, forKey: .launchCommand)
+        environmentVariables = try container.decode([String].self, forKey: .environmentVariables)
+        mounts = try container.decode([AgentMount].self, forKey: .mounts)
+        allowedHosts = try container.decode([String].self, forKey: .allowedHosts)
+        useAlternateScreen = try container.decodeIfPresent(Bool.self, forKey: .useAlternateScreen) ?? false
+    }
 }
 
 /// A host-to-container mount for an agent definition.
@@ -222,7 +259,14 @@ extension AgentDefinition {
             "curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- -d /usr/local/bin"
         ],
         launchCommand: [
-            "agy"
+            "/bin/sh",
+            "-lc",
+            """
+            mkdir -p /root/.gemini/antigravity-cli && \
+            node -e 'const fs=require("fs");const p=process.argv[1];let s={};try{s=JSON.parse(fs.readFileSync(p,"utf8"))}catch(e){if(e.code!=="ENOENT")throw e}s.altScreenMode="always";fs.writeFileSync(p,JSON.stringify(s,null,2)+"\\n")' /root/.gemini/antigravity-cli/settings.json && \
+            exec agy "$@"
+            """,
+            "sandboxy-agy",
         ],
         environmentVariables: [
             "GEMINI_API_KEY",
@@ -256,7 +300,8 @@ extension AgentDefinition {
             "*.githubusercontent.com",
             "*.pypi.org",
             "*.pythonhosted.org"
-        ]
+        ],
+        useAlternateScreen: false
     )
 }
 
@@ -271,6 +316,7 @@ struct AgentOverride: Codable, Sendable {
     var environmentVariables: [String]?
     var mounts: [AgentMount]?
     var allowedHosts: [String]?
+    var useAlternateScreen: Bool?
 
     /// Merges this override onto a base definition, replacing only the fields
     /// that are non-nil in the override.
@@ -282,7 +328,8 @@ struct AgentOverride: Codable, Sendable {
             launchCommand: launchCommand ?? base.launchCommand,
             environmentVariables: environmentVariables ?? base.environmentVariables,
             mounts: mounts ?? base.mounts,
-            allowedHosts: allowedHosts ?? base.allowedHosts
+            allowedHosts: allowedHosts ?? base.allowedHosts,
+            useAlternateScreen: useAlternateScreen ?? base.useAlternateScreen
         )
     }
 
@@ -309,7 +356,8 @@ struct AgentOverride: Codable, Sendable {
             launchCommand: launchCommand,
             environmentVariables: environmentVariables ?? [],
             mounts: mounts ?? [],
-            allowedHosts: allowedHosts ?? []
+            allowedHosts: allowedHosts ?? [],
+            useAlternateScreen: useAlternateScreen ?? false
         )
     }
 }
