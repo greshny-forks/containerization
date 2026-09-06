@@ -115,6 +115,11 @@ struct InstanceState: Codable, Sendable {
             if FileManager.default.fileExists(atPath: path) {
                 try FileManager.default.removeItem(at: rootfs)
             }
+
+            var defaults = try DefaultInstanceStore.load(appRoot: appRoot)
+            if defaults.removeDefaults(referencing: name) {
+                try defaults.save(appRoot: appRoot)
+            }
         }
     }
 }

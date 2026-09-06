@@ -55,7 +55,10 @@ let package = Package(
         ),
         .testTarget(
             name: "sandboxyTests",
-            dependencies: ["sandboxy"],
+            dependencies: [
+                "sandboxy",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
         ),
     ]
 )

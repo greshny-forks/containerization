@@ -54,12 +54,16 @@ extension Sandboxy {
                 )
             }
 
+            let parsedPassthrough = parseRunPassthrough(passthroughArgs)
+            var resolvedOptions = options
+            resolvedOptions.setDefault = options.setDefault || parsedPassthrough.setDefault
+
             try await runAgent(
                 config: config,
                 agentName: agent,
                 definition: definition,
-                options: options,
-                passthroughArgs: passthroughArgs
+                options: resolvedOptions,
+                passthroughArgs: parsedPassthrough.agentArguments
             )
         }
     }
@@ -156,6 +160,9 @@ struct AgentOptions: ParsableArguments {
     @Flag(name: .customLong("rm"), help: "Automatically remove the instance after the session ends")
     var removeAfterRun: Bool = false
 
+    @Flag(name: .long, help: "Make this instance the default for the selected agent")
+    var setDefault: Bool = false
+
     @Option(
         name: [.customLong("mount"), .customShort("m")],
         parsing: .singleValue,
@@ -184,6 +191,67 @@ struct AgentOptions: ParsableArguments {
     var kernel: String?
 }
 
+struct ParsedRunPassthrough: Equatable, Sendable {
+    let setDefault: Bool
+    let agentArguments: [String]
+}
+
+/// Consumes Sandboxy's `--set-default` after the agent name while preserving
+/// agent arguments after the `--` separator.
+func parseRunPassthrough(_ arguments: [String]) -> ParsedRunPassthrough {
+    var setDefault = false
+    var beforeSeparator = true
+    var agentArguments: [String] = []
+
+    for argument in arguments {
+        if beforeSeparator && argument == "--" {
+            beforeSeparator = false
+        } else if beforeSeparator && argument == "--set-default" {
+            setDefault = true
+        } else {
+            agentArguments.append(argument)
+        }
+    }
+
+    return ParsedRunPassthrough(setDefault: setDefault, agentArguments: agentArguments)
+}
+
+func generatedInstanceName(agentName: String, date: Date = Date()) -> String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyyMMdd-HHmmss"
+    return "\(agentName)-\(formatter.string(from: date))"
+}
+
+func resolveInstanceName(
+    agentName: String,
+    explicitName: String?,
+    appRoot: URL,
+    date: Date = Date()
+) throws -> String {
+    if let explicitName {
+        return explicitName
+    }
+
+    var defaults = try DefaultInstanceStore.load(appRoot: appRoot)
+    if let defaultName = defaults.instanceName(for: agentName) {
+        let rootfs = InstanceState.namedRootfsPath(appRoot: appRoot, name: defaultName)
+        if FileManager.default.fileExists(atPath: rootfs.path(percentEncoded: false)) {
+            return defaultName
+        }
+
+        defaults.removeDefault(for: agentName)
+        try defaults.save(appRoot: appRoot)
+    }
+
+    return generatedInstanceName(agentName: agentName, date: date)
+}
+
+func validateInstanceOptions(_ options: AgentOptions) throws {
+    if options.setDefault && options.removeAfterRun {
+        throw ValidationError("--set-default cannot be combined with --rm")
+    }
+}
+
 func runAgent(
     config: SandboxyConfig,
     agentName: String,
@@ -191,6 +259,8 @@ func runAgent(
     options: AgentOptions,
     passthroughArgs: [String]
 ) async throws {
+    try validateInstanceOptions(options)
+
     signal(SIGINT) { _ in
         var termios = termios()
         tcgetattr(STDIN_FILENO, &termios)
@@ -205,15 +275,11 @@ func runAgent(
     let extraMounts = try options.mount.map { try MountSpec.parse($0) }
     let extraEnvVars = try options.env.map { try EnvSpec.resolve($0) }
 
-    // Determine instance name: use --name if provided, otherwise auto-generate.
-    let instanceName: String
-    if let name = options.name {
-        instanceName = name
-    } else {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        instanceName = "\(agentName)-\(formatter.string(from: Date()))"
-    }
+    let instanceName = try resolveInstanceName(
+        agentName: agentName,
+        explicitName: options.name,
+        appRoot: Sandboxy.appRoot
+    )
 
     if let old = try InstanceState.find(name: instanceName, appRoot: Sandboxy.appRoot) {
         try? old.remove(appRoot: Sandboxy.appRoot)
@@ -260,10 +326,8 @@ func runAgent(
     allowedHosts.append(contentsOf: options.allowHosts)
     let filteringEnabled = !options.noNetworkFilter
 
-    let filteredPassthroughArgs = passthroughArgs.filter { $0 != "--" }
-
     var fullCommand = definition.launchCommand
-    fullCommand.append(contentsOf: filteredPassthroughArgs)
+    fullCommand.append(contentsOf: passthroughArgs)
     ProgressUI.printDetail("\u{1b}[1mCommand:\u{1b}[0m \(fullCommand.joined(separator: " "))")
 
     if filteringEnabled {
@@ -577,7 +641,7 @@ func runAgent(
             extraEnvVars: extraEnvVars,
             proxyIP: proxyIP,
             allowedHosts: allowedHosts,
-            passthroughArgs: filteredPassthroughArgs
+            passthroughArgs: passthroughArgs
         )
 
         // Cleanup
@@ -762,6 +826,15 @@ private func runContainerSession(
                 memoryMB: instanceState.memoryMB
             )
             try stopped.save(appRoot: Sandboxy.appRoot)
+
+            if options.setDefault {
+                var defaults = try DefaultInstanceStore.load(appRoot: Sandboxy.appRoot)
+                defaults.set(instanceName: instanceName, for: agentName)
+                try defaults.save(appRoot: Sandboxy.appRoot)
+                ProgressUI.printStatus(
+                    "Instance \u{1b}[1m\(instanceName)\u{1b}[0m is now the default for \(agentName)."
+                )
+            }
 
             ProgressUI.printStatus(
                 "Instance \u{1b}[1m\(instanceName)\u{1b}[0m saved. Resume with: sandboxy run --name \(instanceName) \(agentName)"

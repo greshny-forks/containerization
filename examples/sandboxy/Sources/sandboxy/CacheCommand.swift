@@ -210,6 +210,10 @@ extension Sandboxy {
                 try fm.createDirectory(at: namedDir, withIntermediateDirectories: true)
             }
 
+            var defaults = try DefaultInstanceStore.load(appRoot: Sandboxy.appRoot)
+            defaults.removeAll()
+            try defaults.save(appRoot: Sandboxy.appRoot)
+
             if all {
                 let kernelDir = Sandboxy.appRoot.appendingPathComponent("kernel")
                 if fm.fileExists(atPath: kernelDir.path(percentEncoded: false)) {

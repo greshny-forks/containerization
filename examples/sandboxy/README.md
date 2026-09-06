@@ -148,6 +148,9 @@ sandboxy run --ssh-agent claude
 # Give the instance a friendly name
 sandboxy run --name my-feature claude
 
+# Make an instance the default for an agent
+sandboxy run codex --set-default
+
 # Resume a named session
 sandboxy run --name my-feature claude
 
@@ -178,6 +181,7 @@ sandboxy run codex -- --version
 | `--no-network-filter` | Disable network filtering (allow unrestricted access) | Off |
 | `--no-agent-mounts` | Skip mounts defined in the agent configuration | Off |
 | `--name` | Persistent session name | Auto-generated |
+| `--set-default` | Make this instance the default for the selected agent | Off |
 | `--rm` | Remove instance after session ends | Off |
 | `--reinstall` | Rebuild the cached environment from scratch | Off |
 | `--ssh-agent` | Forward the host SSH agent socket into the container | Off |
@@ -300,6 +304,20 @@ sandboxy run --rm claude
 ```
 
 Use `--rm` for throwaway sessions that shouldn't persist.
+
+### Default instances
+
+Use `--set-default` to remember the current persistent instance for an agent. After the first session exits, future runs reopen it without requiring `--name`:
+
+```bash
+sandboxy run agy --set-default
+sandboxy run agy
+
+sandboxy run codex --set-default
+sandboxy run codex
+```
+
+Defaults are stored separately for each agent. An explicit `--name` always takes priority; combine it with `--set-default` to replace that agent's default. If a default instance has been removed, Sandboxy clears the stale reference and creates a new auto-named instance. Use `--` before agent arguments when an agent itself accepts an option named `--set-default`.
 
 ## API Keys
 
