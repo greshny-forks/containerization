@@ -100,6 +100,7 @@ On first run, `sandboxy` downloads a kernel, pulls a base image, and installs th
 ## Supported Agents
 
 - **Claude Code** - built-in
+- **OpenAI Codex CLI** - built-in (`codex`)
 - **Antigravity CLI** - built-in (`agy`, `antigravity`, `antigravity-cli`)
 
 Additional agents can be added via JSON config files. See [Adding a New Agent](#adding-a-new-agent).
@@ -116,6 +117,9 @@ sandboxy run claude
 
 # Run Antigravity CLI
 sandboxy run agy
+
+# Run OpenAI Codex CLI
+sandboxy run codex
 
 # Specify a workspace
 sandboxy run --workspace ~/projects/myapp claude
@@ -155,6 +159,9 @@ sandboxy run claude -- --model foobar
 
 # Pass flags through to agy
 sandboxy run agy -- --help
+
+# Pass flags through to Codex
+sandboxy run codex -- --version
 ```
 
 **Options:**
@@ -298,6 +305,15 @@ Use `--rm` for throwaway sessions that shouldn't persist.
 
 Agent definitions can include environment variable names without values (e.g. `"ANTHROPIC_API_KEY"`), which are automatically forwarded from the host if set. The built-in Claude Code agent forwards `ANTHROPIC_API_KEY` this way. For custom agents, add the relevant key name to the `environmentVariables` array, or pass it at runtime with `-e`.
 
+The built-in Codex agent forwards `OPENAI_API_KEY` when it is set, but does not mount the host `~/.codex` directory. Codex configuration and login credentials are stored in `/root/.codex` inside the persistent instance. To use ChatGPT login in a headless container, create a named instance and start the device-code flow:
+
+```bash
+sandboxy run --name my-codex codex -- login --device-auth
+sandboxy run --name my-codex codex
+```
+
+Codex keeps its own default sandbox and approval behavior inside the Sandboxy container.
+
 ## Network Filtering
 
 Network filtering is enabled by default. Each agent definition includes an `allowedHosts` list. Additional hosts can be added at runtime with `--allow-hosts`. An empty `allowedHosts` list means all traffic is denied. To disable filtering entirely, pass `--no-network-filter`.
@@ -305,6 +321,12 @@ Network filtering is enabled by default. Each agent definition includes an `allo
 The workload container runs on a **host-only network** with no internet route. A lightweight HTTP CONNECT proxy runs on the macOS host, bound to the host-only network's gateway address. The workload's proxy environment variables point at this address, so tools that respect `HTTP_PROXY`/`HTTPS_PROXY` route their traffic through the proxy automatically.
 
 Note that the proxy relies on applications honoring `HTTP_PROXY`/`HTTPS_PROXY` environment variables. Tools that ignore these variables won't be able to reach the internet since the container has no direct internet route.
+
+The built-in Codex agent allows only OpenAI and ChatGPT services by default. Add project-specific destinations explicitly, for example:
+
+```bash
+sandboxy run --allow-hosts github.com --allow-hosts '*.github.com' codex
+```
 
 Agent toolchain installation (apt-get, npm install, etc.) runs with full network access on a shared network before the proxy is set up, so package repos don't need to be allowlisted.
 

@@ -52,6 +52,10 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "Logging", package: "swift-log"),
             ],
-        )
+        ),
+        .testTarget(
+            name: "sandboxyTests",
+            dependencies: ["sandboxy"],
+        ),
     ]
 )

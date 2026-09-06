@@ -110,6 +110,7 @@ extension AgentDefinition {
     /// Built-in agent definitions, keyed by their CLI name.
     static let builtIn: [String: AgentDefinition] = [
         "claude": .claude,
+        "codex": .codex,
         "agy": .antigravity,
         "antigravity": .antigravity,
         "antigravity-cli": .antigravity,
@@ -189,6 +190,28 @@ extension AgentDefinition {
             "*.pypi.org",
             "*.pythonhosted.org",
         ]
+    )
+
+    static let codex = AgentDefinition(
+        displayName: "OpenAI Codex CLI",
+        baseImage: "docker.io/library/node:22-slim",
+        installCommands: [
+            "sed -i 's|deb.debian.org/debian|mirrors.kernel.org/debian|g' /etc/apt/sources.list.d/debian.sources && sed -i 's|mirrors.kernel.org/debian-security|security.debian.org/debian-security|g' /etc/apt/sources.list.d/debian.sources && apt-get -o Acquire::ForceIPv4=true update && apt-get -o Acquire::ForceIPv4=true install -y --no-install-recommends curl git ca-certificates procps && apt-get clean && rm -rf /var/lib/apt/lists/*",
+            "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+        ],
+        launchCommand: ["codex"],
+        environmentVariables: [
+            "CODEX_HOME=/root/.codex",
+            "OPENAI_API_KEY",
+            "IS_SANDBOX=1",
+        ],
+        mounts: [],
+        allowedHosts: [
+            "*.openai.com",
+            "*.chatgpt.com",
+            "*.oaistatic.com",
+            "*.oaiusercontent.com",
+        ],
     )
 
     static let antigravity = AgentDefinition(
