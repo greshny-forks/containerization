@@ -44,7 +44,16 @@ extension Sandboxy {
         var passthroughArgs: [String] = []
 
         func run() async throws {
-            let config = try Sandboxy.loadConfig()
+            let parsedPassthrough = parseRunPassthrough(passthroughArgs)
+            var resolvedOptions = options
+            resolvedOptions.setDefault = options.setDefault || parsedPassthrough.setDefault
+            resolvedOptions.noRunDefaults = options.noRunDefaults || parsedPassthrough.noRunDefaults
+            resolvedOptions.dryRun = options.dryRun || parsedPassthrough.dryRun
+            // Preview must not create directories or change default-instance state.
+            let config =
+                try resolvedOptions.dryRun
+                ? SandboxyConfig.load(configRoot: Sandboxy.configRoot)
+                : Sandboxy.loadConfig()
 
             let agents = AgentDefinition.allAgents(configRoot: Sandboxy.configRoot)
             guard let definition = agents[agent] else {
@@ -53,10 +62,6 @@ extension Sandboxy {
                     "Unknown agent '\(agent)'. Available agents: \(available)"
                 )
             }
-
-            let parsedPassthrough = parseRunPassthrough(passthroughArgs)
-            var resolvedOptions = options
-            resolvedOptions.setDefault = options.setDefault || parsedPassthrough.setDefault
 
             try await runAgent(
                 config: config,
@@ -75,7 +80,7 @@ struct AgentOptions: ParsableArguments {
         help: "Workspace directory on the host (defaults to current directory)",
         completion: .directory,
         transform: { str in
-            URL(fileURLWithPath: str, relativeTo: .currentDirectory())
+            URL(fileURLWithPath: (str as NSString).expandingTildeInPath, relativeTo: .currentDirectory())
                 .absoluteURL.path(percentEncoded: false)
         })
     var workspace: String?
@@ -148,6 +153,12 @@ struct AgentOptions: ParsableArguments {
     @Flag(name: .long, help: "Disable network filtering (allow unrestricted network access)")
     var noNetworkFilter: Bool = false
 
+    @Flag(name: .long, help: "Ignore saved per-agent run defaults for this launch")
+    var noRunDefaults: Bool = false
+
+    @Flag(name: .long, help: "Print resolved run configuration without starting a container")
+    var dryRun: Bool = false
+
     @Flag(name: .long, help: "Force reinstall of agent (ignore cached rootfs)")
     var reinstall: Bool = false
 
@@ -185,7 +196,7 @@ struct AgentOptions: ParsableArguments {
         help: "Path to Linux kernel binary (auto-downloads if omitted)",
         completion: .file(),
         transform: { str in
-            URL(fileURLWithPath: str, relativeTo: .currentDirectory())
+            URL(fileURLWithPath: (str as NSString).expandingTildeInPath, relativeTo: .currentDirectory())
                 .absoluteURL.path(percentEncoded: false)
         })
     var kernel: String?
@@ -194,12 +205,16 @@ struct AgentOptions: ParsableArguments {
 struct ParsedRunPassthrough: Equatable, Sendable {
     let setDefault: Bool
     let agentArguments: [String]
+    var noRunDefaults: Bool = false
+    var dryRun: Bool = false
 }
 
-/// Consumes Sandboxy's `--set-default` after the agent name while preserving
+/// Consumes Sandboxy's run flags after the agent name while preserving
 /// agent arguments after the `--` separator.
 func parseRunPassthrough(_ arguments: [String]) -> ParsedRunPassthrough {
     var setDefault = false
+    var noRunDefaults = false
+    var dryRun = false
     var beforeSeparator = true
     var agentArguments: [String] = []
 
@@ -208,12 +223,16 @@ func parseRunPassthrough(_ arguments: [String]) -> ParsedRunPassthrough {
             beforeSeparator = false
         } else if beforeSeparator && argument == "--set-default" {
             setDefault = true
+        } else if beforeSeparator && argument == "--no-run-defaults" {
+            noRunDefaults = true
+        } else if beforeSeparator && argument == "--dry-run" {
+            dryRun = true
         } else {
             agentArguments.append(argument)
         }
     }
 
-    return ParsedRunPassthrough(setDefault: setDefault, agentArguments: agentArguments)
+    return ParsedRunPassthrough(setDefault: setDefault, agentArguments: agentArguments, noRunDefaults: noRunDefaults, dryRun: dryRun)
 }
 
 func generatedInstanceName(agentName: String, date: Date = Date()) -> String {
@@ -261,9 +280,18 @@ func runAgent(
 ) async throws {
     try validateInstanceOptions(options)
 
-    let hostWorkspacePath = options.workspace ?? FileManager.default.currentDirectoryPath
+    let resolved = try ResolvedRunConfiguration.resolve(
+        config: config, agentName: agentName, definition: definition, options: options)
+    if options.dryRun {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        print(String(decoding: try encoder.encode(resolved), as: UTF8.self))
+        return
+    }
+
+    let hostWorkspacePath = resolved.workspace
     let guestWorkspacePath = hostWorkspacePath
-    let extraMounts = try options.mount.map { try MountSpec.parse($0) }
+    let extraMounts = resolved.mounts
     let extraEnvVars = try options.env.map { try EnvSpec.resolve($0) }
 
     let instanceName = try resolveInstanceName(
@@ -312,9 +340,7 @@ func runAgent(
     }
     let kernel = Kernel(path: kernelPath, platform: .linuxArm)
 
-    // Merge allowed hosts from agent definition and CLI flags.
-    var allowedHosts = definition.allowedHosts
-    allowedHosts.append(contentsOf: options.allowHosts)
+    let allowedHosts = resolved.allowedHosts
     let filteringEnabled = !options.noNetworkFilter
 
     var fullCommand = definition.launchCommand
@@ -979,7 +1005,7 @@ func removeIfExists(at url: URL) {
 }
 
 /// A parsed `hostpath:containerpath[:ro|rw]` mount specification from the CLI.
-struct MountSpec {
+struct MountSpec: Codable, Equatable {
     let hostPath: String
     let containerPath: String
     let readOnly: Bool
@@ -1005,7 +1031,7 @@ struct MountSpec {
         }
 
         // Resolve host path to absolute.
-        let hostPath = URL(fileURLWithPath: parts[0], relativeTo: .currentDirectory())
+        let hostPath = URL(fileURLWithPath: (parts[0] as NSString).expandingTildeInPath, relativeTo: .currentDirectory())
             .absoluteURL.path(percentEncoded: false)
 
         return MountSpec(hostPath: hostPath, containerPath: parts[1], readOnly: readOnly)

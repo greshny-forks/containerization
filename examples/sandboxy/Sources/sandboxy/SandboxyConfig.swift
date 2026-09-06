@@ -47,6 +47,9 @@ struct SandboxyConfig: Codable, Sendable {
     /// Default memory for new containers (e.g. "4g", "512m", "4096" for MB).
     var defaultMemory: String?
 
+    /// User run parameters, isolated by agent name. Workspace is intentionally not persisted.
+    var runDefaults: [String: AgentRunDefaults]?
+
     /// Built-in defaults used when no config file is present.
     static let defaults = SandboxyConfig(
         initfsReference: "ghcr.io/apple/containerization/vminit:0.30.0",
@@ -72,10 +75,17 @@ struct SandboxyConfig: Codable, Sendable {
                 kernel: userConfig.kernel,
                 initfsReference: userConfig.initfsReference ?? defaults.initfsReference,
                 defaultCPUs: userConfig.defaultCPUs ?? defaults.defaultCPUs,
-                defaultMemory: userConfig.defaultMemory ?? defaults.defaultMemory
+                defaultMemory: userConfig.defaultMemory ?? defaults.defaultMemory,
+                runDefaults: userConfig.runDefaults
             )
         } catch {
             throw SandboxyError.configFailedToLoad(error: error)
         }
     }
+}
+
+/// Optional user parameters applied afresh on every run, including resumed instances.
+struct AgentRunDefaults: Codable, Sendable {
+    var mounts: [AgentMount]?
+    var allowHosts: [String]?
 }

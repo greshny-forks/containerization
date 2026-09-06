@@ -180,6 +180,8 @@ sandboxy run codex -- --version
 | `--allow-hosts` | Additional hostnames to allow (merged with agent defaults) | Agent defaults |
 | `--no-network-filter` | Disable network filtering (allow unrestricted access) | Off |
 | `--no-agent-mounts` | Skip mounts defined in the agent configuration | Off |
+| `--no-run-defaults` | Ignore saved per-agent mounts and hosts for this launch | Off |
+| `--dry-run` | Print resolved run settings without launching a container | Off |
 | `--name` | Persistent session name | Auto-generated |
 | `--set-default` | Make this instance the default for the selected agent | Off |
 | `--rm` | Remove instance after session ends | Off |
@@ -394,6 +396,71 @@ Global defaults can be overridden with a config file:
 ```
 
 All fields are optional. Use `sandboxy config list` to see the defaults.
+
+### Per-agent run defaults
+
+Save repeated mounts and extra allowed hosts in `~/.config/sandboxy/config.json`:
+
+```json
+{
+  "runDefaults": {
+    "agy": {
+      "mounts": [
+        {
+          "hostPath": "~/.agents/skills/",
+          "containerPath": "/root/.gemini/config/skills/",
+          "readOnly": true
+        }
+      ],
+      "allowHosts": ["youtrack.hp.familyds.net"]
+    },
+    "codex": {
+      "allowHosts": ["github.com"]
+    }
+  }
+}
+```
+
+Run `bin/sandboxy run agy` from the directory you want to work in. Workspace is
+not persisted: use the current directory or explicitly pass `-w ~/Dropbox/org`.
+Defaults are separate from agent definitions and are read on every launch,
+including when resuming an existing persistent instance.
+
+| Setting | Resolution |
+| --- | --- |
+| Workspace | Explicit `-w` / `--workspace`, otherwise current directory |
+| Additional mounts | Saved mounts plus CLI mounts; CLI replaces a saved mount at the same container destination |
+| Allowed hosts | Built-in/custom agent allowlist plus saved hosts plus CLI `--allow-hosts`; exact duplicates removed |
+| `--no-run-defaults` | Ignore saved mounts and hosts; retain explicit CLI options and agent definition |
+| `--no-agent-mounts` | Skip agent-definition mounts; retain saved and CLI mounts |
+
+Host paths expand `~` on the host; relative host paths resolve from the current
+directory. Mounts default to read-write unless `"readOnly": true` is specified.
+Duplicate destinations within saved mounts or within CLI mounts are errors.
+Container destinations must be absolute; equivalent paths such as `/skills/`
+and `/skills` count as the same destination.
+
+```bash
+# Preview resolved settings as JSON, without creating or starting a container
+bin/sandboxy run --dry-run agy
+
+# Ignore saved run defaults for one launch
+bin/sandboxy run --no-run-defaults agy
+
+# Replace the saved skills mount for one launch
+bin/sandboxy run --mount ~/test-skills:/root/.gemini/config/skills:ro agy
+```
+
+The preview includes the workspace (shared at the same path in the container),
+merged additional mounts, agent-definition mounts with reasons for skipped
+entries, and the combined allowlist. `networkFiltering: false` means network
+access is unrestricted despite the displayed allowlist.
+
+Both new flags also work after the agent name. Put agent arguments after `--`
+to forward them unchanged. Preview does not download images or kernels, update
+instance state, or create configuration/runtime directories. Named profiles and
+persistence of other run flags are outside this version.
+
 
 ## Kernel
 
